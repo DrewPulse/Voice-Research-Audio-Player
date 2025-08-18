@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
+import { FloatingCameraVideo } from './FloatingCameraVideo';
 
 interface SessionTimerProps {
   startTime: number;
   duration: number; // in minutes
   onSessionEnd: () => void;
   isActive: boolean;
+  cameraStream: MediaStream | null;
+  onStopCamera: () => void;
 }
 
-export function SessionTimer({ startTime, duration, onSessionEnd, isActive }: SessionTimerProps) {
+export function SessionTimer({ startTime, duration, onSessionEnd, isActive, cameraStream, onStopCamera }: SessionTimerProps) {
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [cameraHidden, setCameraHidden] = useState(true);
 
   useEffect(() => {
     if (!isActive) return;
@@ -48,12 +52,22 @@ export function SessionTimer({ startTime, duration, onSessionEnd, isActive }: Se
                 {remainingHours > 0 ? `${remainingHours}h ` : ''}{remainingMinutes}m left
               </span>
             </div>
-            <button
-              onClick={onSessionEnd}
-              className="px-2 py-1 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
-            >
-              End Now
-            </button>
+            
+            <div className="flex items-center gap-2">
+              {cameraStream && (
+                <FloatingCameraVideo
+                  stream={cameraStream}
+                  onClose={onStopCamera}
+                  onStop={onStopCamera}
+                />
+              )}
+              <button
+                onClick={onSessionEnd}
+                className="px-2 py-1 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+              >
+                End Now
+              </button>
+            </div>
           </div>
           <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
             <div 
@@ -73,6 +87,15 @@ export function SessionTimer({ startTime, duration, onSessionEnd, isActive }: Se
           </div>
           
           <div className="flex items-center gap-4">
+            {cameraStream && (
+              <FloatingCameraVideo
+                stream={cameraStream}
+                onClose={onStopCamera}
+                onStop={onStopCamera}
+                onHiddenChange={setCameraHidden}
+              />
+            )}
+            
             <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-blue-500 transition-all duration-1000"

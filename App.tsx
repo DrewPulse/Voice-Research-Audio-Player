@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ClipSelector } from './components/ClipSelector';
 import { NowPlaying } from './components/NowPlaying';
 import { SwitchReasonModal } from './components/SwitchReasonModal';
+import { CameraPermissionModal } from './components/CameraPermissionModal';
+import { FloatingCameraVideo } from './components/FloatingCameraVideo';
 import { ExitSurvey } from './components/ExitSurvey';
 import { SessionTimer } from './components/SessionTimer';
 import { ResearchComplete } from './components/ResearchComplete';
@@ -43,9 +45,14 @@ export default function App() {
   });
   const [currentClip, setCurrentClip] = useState<AudioClip | null>(null);
   const [showSwitchModal, setShowSwitchModal] = useState(false);
+  const [showCameraModal, setShowCameraModal] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [showSurvey, setShowSurvey] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Camera-related state
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [pendingSessionDuration, setPendingSessionDuration] = useState<number | null>(null);
 
   const audioClips: AudioClip[] = [
     { id: 1, title: "After Twenty Years", author: "O. Henry", image: "/placeholder-book-1.jpg", audioUrl: "/audio/clip1.mov", voice: "Voice A" },
@@ -60,7 +67,22 @@ export default function App() {
     { id: 10, title: "What Should Be the Master Demand of Twentieth Century Civilization", author: "B.O. Flower", image: "/placeholder-book-10.jpg", audioUrl: "/audio/clip10.mov", voice: "Voice J" }
   ];
 
-  const startSession = async (duration: number) => {
+  // Camera cleanup effect
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
+  const startSession = async () => {
+    const defaultDuration = 60; // Default to 60 minutes
+    setPendingSessionDuration(defaultDuration);
+    setShowCameraModal(true);
+  };
+
+  const proceedToSession = async (duration: number) => {
     try {
       const participantId = `participant_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const { sessionId } = await researchService.startSession(participantId, duration);
@@ -78,6 +100,28 @@ export default function App() {
     } catch (error) {
       console.error('Failed to start session:', error);
       setError('Failed to start research session. Please try again.');
+    }
+  };
+
+  const handleCameraPermissionGranted = (stream: MediaStream) => {
+    setCameraStream(stream);
+    if (pendingSessionDuration) {
+      proceedToSession(pendingSessionDuration);
+      setPendingSessionDuration(null);
+    }
+  };
+
+  const handleCameraPermissionDenied = () => {
+    if (pendingSessionDuration) {
+      proceedToSession(pendingSessionDuration);
+      setPendingSessionDuration(null);
+    }
+  };
+
+  const stopCameraRecording = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
     }
   };
 
@@ -189,42 +233,43 @@ export default function App() {
 
   if (currentView === 'setup') {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="max-w-md w-full space-y-6 text-center">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Voice Research Study</h1>
-            <p className="text-gray-600">
-              Welcome! You'll be listening to audiobook clips with different voice samples. 
-              Choose clips naturally as you would when browsing audiobooks.
-            </p>
-          </div>
-          
-          <div className="space-y-4">
-            <p className="text-sm text-gray-500">Select your session duration:</p>
-            <div className="grid grid-cols-2 gap-4">
+      <>
+        <div className="min-h-screen bg-white flex items-center justify-center p-4">
+          <div className="max-w-md w-full space-y-6 text-center">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Voice Research Study</h1>
+              <p className="text-gray-600">
+                Welcome! You'll be listening to audiobook clips with different voice samples. 
+                Choose clips naturally as you would when browsing audiobooks.
+              </p>
+            </div>
+            
+            <div className="space-y-4">
               <button
-                onClick={() => startSession(60)}
-                className="bg-blue-500 text-white py-3 px-6 rounded-lg hover:bg-blue-600 transition-colors"
+                onClick={startSession}
+                className="w-full bg-blue-500 text-white py-4 px-8 rounded-lg hover:bg-blue-600 transition-colors text-lg font-medium"
               >
-                1 Hour Session
-              </button>
-              <button
-                onClick={() => startSession(120)}
-                className="bg-blue-500 text-white py-3 px-6 rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                2 Hour Session
+                Start Session
               </button>
             </div>
-          </div>
-          
-          <div className="text-xs text-gray-400 space-y-1">
-            <p>• Listen to clips naturally and switch when you feel like it</p>
-            <p>• You'll be asked why you switched each time</p>
-            <p>• Complete a brief survey at the end</p>
-            <p>• All responses are collected for research analysis</p>
+            
+            <div className="text-xs text-gray-400 space-y-1">
+              <p>• Listen to clips naturally and switch when you feel like it</p>
+              <p>• You'll be asked why you switched each time</p>
+              <p>• Complete a brief survey at the end</p>
+              <p>• All responses are collected for research analysis</p>
+            </div>
           </div>
         </div>
-      </div>
+        
+        {showCameraModal && (
+          <CameraPermissionModal
+            onPermissionGranted={handleCameraPermissionGranted}
+            onPermissionDenied={handleCameraPermissionDenied}
+            onClose={() => setShowCameraModal(false)}
+          />
+        )}
+      </>
     );
   }
 
@@ -233,6 +278,12 @@ export default function App() {
       <ResearchComplete 
         sessionData={sessionData}
         onStartNew={() => {
+          // Stop camera if running
+          if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            setCameraStream(null);
+          }
+          
           setCurrentView('setup');
           setSessionData({
             startTime: 0,
@@ -244,6 +295,7 @@ export default function App() {
           setCurrentClip(null);
           setSessionEnded(false);
           setShowSurvey(false);
+          setPendingSessionDuration(null);
         }}
       />
     );
@@ -256,6 +308,8 @@ export default function App() {
         duration={sessionData.duration}
         onSessionEnd={handleSessionEnd}
         isActive={currentView === 'selector' || currentView === 'playing'}
+        cameraStream={cameraStream}
+        onStopCamera={stopCameraRecording}
       />
       
       {currentView === 'selector' && (
@@ -281,6 +335,12 @@ export default function App() {
         open={showSurvey}
         onOpenChange={setShowSurvey}
       />
+      
+      {showCameraModal && (
+        <CameraPermissionModal
+          onClose={() => setShowCameraModal(false)}
+        />
+      )}
       
       {showSwitchModal && (
         <SwitchReasonModal
